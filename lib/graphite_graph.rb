@@ -1,8 +1,9 @@
+require 'uri'
 # A small DSL to assist in the creation of Graphite graphs
 # see https://github.com/ripienaar/graphite-graph-dsl/wiki
 # for full details
 class GraphiteGraph
-  attr_reader :info, :properties, :targets, :target_order
+  attr_reader :info, :properties, :targets, :target_order, :critical_threshold, :warning_threshold
 
   def initialize(file, overrides={}, info={})
     @info = info
@@ -11,7 +12,12 @@ class GraphiteGraph
     @overrides = overrides
     @linecount = 0
 
-    load_graph
+    @critical_threshold = []
+    @warning_threshold = []
+
+    @properties = defaults
+    @targets = {}
+    @target_order = []
   end
 
   def defaults
@@ -24,17 +30,22 @@ class GraphiteGraph
                    :surpress => false,
                    :description => nil,
                    :hide_legend => nil,
+                   :hide_grid => nil,
                    :ymin => nil,
                    :ymax => nil,
                    :linewidth => nil,
-                   :connected => false,
+                   :linemode => nil,
                    :fontsize => nil,
                    :fontbold => false,
+                   :timezone => nil,
                    :draw_null_as_zero => false,
                    :fgcolor => nil,
                    :bgcolor => nil,
+                   :area => :none,
+                   :absolute_url => nil,
+                   :major_grid_line_color => nil,
+                   :minor_grid_line_color => nil,
                    :area => :none}.merge(@overrides)
-
   end
 
   def [](key)
@@ -54,10 +65,6 @@ class GraphiteGraph
   end
 
   def load_graph
-    @properties = defaults
-    @targets = {}
-    @target_order = []
-
     self.instance_eval(File.read(@file)) unless @file == :none
   end
 
@@ -121,27 +128,19 @@ class GraphiteGraph
       aberration_args = args.clone
       aberration_args[:data] = "holtWintersAberration(keepLastValue(#{aberration_args[:data]}))"
       aberration_args[:color] = args[:aberration_color] || "orange"
-      aberration_args[:alias] = "#{args[:alias]} Aberation"
+      aberration_args[:alias] = "#{args[:alias]} Aberration"
       aberration_args[:second_y_axis] = true if aberration_args[:aberration_second_y]
       field "#{name}_aberration", aberration_args
     end
 
     if args[:critical]
-      [args[:critical]].flatten.each_with_index do |crit, index|
-        color = args[:critical_color] || "red"
-        caption = "#{args[:alias]} Critical"
-
-        line :caption => "#{name}_crit_#{index}", :value => crit, :color => color, :dashed => true
-      end
+      color = args[:critical_color] || "red"
+      critical :value => args[:critical], :color => color, :name => name
     end
 
     if args[:warning]
-      [args[:warning]].flatten.each_with_index do |warn, index|
-        color = args[:warning_color] || "orange"
-        caption = "#{args[:alias]} Warning"
-
-        line :caption => "#{name}_warn_#{index}", :value => warn, :color => color, :dashed => true
-      end
+      color = args[:warning_color] || "orange"
+      warning :value => args[:warning], :color => color, :name => name
     end
 
     args[:color] ||= "yellow"
@@ -151,6 +150,52 @@ class GraphiteGraph
 
   alias :forecast :hw_predict
 
+  # draws a single dashed line with predictable names, defaults to red line
+  #
+  # data can be a single item or a 2 item array, it doesn't break if you supply
+  # more but # more than 2 items just doesn't make sense generally
+  #
+  # critical :value => [700, -700], :color => "red"
+  #
+  # You can prevent the line from being drawn but just store the ranges for monitoring
+  # purposes by adding :hide => true to the arguments
+  def critical(options)
+    raise "critical lines need a value" unless options[:value]
+
+    @critical_threshold = [options[:value]].flatten
+
+    options[:color] ||= "red"
+
+    unless options[:hide]
+      @critical_threshold.each_with_index do |crit, index|
+        line :caption => "crit_#{index}", :value => crit, :color => options[:color], :dashed => true
+      end
+    end
+  end
+
+  # draws a single dashed line with predictable names, defaults to orange line
+  #
+  # data can be a single item or a 2 item array, it doesn't break if you supply
+  # more but # more than 2 items just doesn't make sense generally
+  #
+  # warning :value => [700, -700], :color => "orange"
+  #
+  # You can prevent the line from being drawn but just store the ranges for monitoring
+  # purposes by adding :hide => true to the arguments
+  def warning(options)
+    raise "warning lines need a value" unless options[:value]
+
+    @warning_threshold = [options[:value]].flatten
+
+    options[:color] ||= "orange"
+
+    unless options[:hide]
+      @warning_threshold.flatten.each_with_index do |warn, index|
+        line :caption => "warn_#{index}", :value => warn, :color => options[:color], :dashed => true
+      end
+    end
+  end
+
   # draws a simple line on the graph with a caption, value and color.
   #
   # line :caption => "warning", :value => 50, :color => "orange"
@@ -159,11 +204,11 @@ class GraphiteGraph
     raise "lines need a value" unless options.include?(:value)
     raise "lines need a color" unless options.include?(:color)
 
-    args = {:data => "threshold(#{options[:value]})", :color => options[:color], :alias => options[:caption]}
+    options[:alias] = options[:caption] unless options[:alias]
+
+    args = {:data => "threshold(#{options[:value]})", :color => options[:color], :alias => options[:alias]}
 
     args[:dashed] = true if options[:dashed]
-
-    args[:connected] = true if options[:connected]
 
     field "line_#{@linecount}", args
 
@@ -184,6 +229,15 @@ class GraphiteGraph
     target_order << name
   end
 
+  def get_absolute_url
+    return nil if properties[:absolute_url].nil?
+
+    abs_url = properties[:absolute_url]
+    abs_url = abs_url.gsub('HEIGHT', properties[:height].to_s)
+    abs_url = abs_url.gsub('WIDTH', properties[:width].to_s)
+    return abs_url
+  end
+
   def url(format = nil, url=true)
     return nil if properties[:surpress]
 
@@ -196,15 +250,17 @@ class GraphiteGraph
 
     url_parts << "areaMode=#{properties[:area]}" if properties[:area]
     url_parts << "hideLegend=#{properties[:hide_legend]}" if properties.include?(:hide_legend)
+    url_parts << "hideGrid=#{properties[:hide_grid]}" if properties[:hide_grid]
     url_parts << "yMin=#{properties[:ymin]}" if properties[:ymin]
     url_parts << "yMax=#{properties[:ymax]}" if properties[:ymax]
     url_parts << "lineWidth=#{properties[:linewidth]}" if properties[:linewidth]
-    url_parts << "lineMode=#{'connected'}" if properties[:connected]
+    url_parts << "lineMode=#{properties[:linemode]}" if properties[:linemode]
     url_parts << "fontSize=#{properties[:fontsize]}" if properties[:fontsize]
     url_parts << "fontBold=#{properties[:fontbold]}" if properties[:fontbold]
     url_parts << "drawNullAsZero=#{properties[:draw_null_as_zero]}" if properties[:draw_null_as_zero]
-    url_parts << "bgcolor=#{properties[:bgcolor]}" if properties[:bgcolor]
-    url_parts << "fgcolor=#{properties[:fgcolor]}" if properties[:fgcolor]
+    url_parts << "tz=#{properties[:timezone]}" if properties[:timezone]
+    url_parts << "majorGridLineColor=#{properties[:major_grid_line_color]}" if properties[:major_grid_line_color]
+    url_parts << "minorGridLineColor=#{properties[:minor_grid_line_color]}" if properties[:minor_grid_line_color]
 
     target_order.each do |name|
       target = targets[name]
@@ -219,10 +275,10 @@ class GraphiteGraph
         graphite_target = "derivative(#{graphite_target})" if target[:derivative]
         graphite_target = "scale(#{graphite_target},#{target[:scale]})" if target[:scale]
         graphite_target = "drawAsInfinite(#{graphite_target})" if target[:line]
+        graphite_target = "movingAverage(#{graphite_target},#{target[:smoothing]})" if target[:smoothing]
 
         graphite_target = "color(#{graphite_target},\"#{target[:color]}\")" if target[:color]
         graphite_target = "dashed(#{graphite_target})" if target[:dashed]
-
         graphite_target = "secondYAxis(#{graphite_target})" if target[:second_y_axis]
 
         if target[:alias]
@@ -238,7 +294,7 @@ class GraphiteGraph
     url_parts << "format=#{format}" if format
 
     if url
-      url_parts.join("&")
+       URI.encode(url_parts.join("&"))
     else
       url_parts
     end

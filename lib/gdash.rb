@@ -2,9 +2,12 @@ require 'rubygems'
 require 'sinatra'
 require 'yaml'
 require 'erb'
+require 'json'
+require 'hashie'
 
 class GDash
     require 'gdash/dashboard'
+    require 'gdash/configuration'
     require 'gdash/monkey_patches'
     require 'gdash/sinatra_app'
     require 'graphite_graph'
@@ -21,11 +24,8 @@ class GDash
         raise "Dashboard templates directory #{@dash_templates} does not exist" unless File.directory?(@dash_templates)
     end
 
-    def dashboard(name, width=nil, height=nil)
-        width ||= @width
-        height ||= @height
-
-        Dashboard.new(name, dash_templates, width, height)
+    def dashboard(name, overrides={})
+        Dashboard.new(name, dash_templates, overrides)
     end
 
     def list

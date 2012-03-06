@@ -16,6 +16,9 @@ class GDash
             # the dash site might have a prefix for its css etc
             @prefix = options.delete(:prefix) || ""
 
+            # the page refresh rate
+            @refresh_rate = options.delete(:refresh_rate) || 60
+
             # how many columns of graphs do you want on a page
             @graph_columns = options.delete(:graph_columns) || 2
 
@@ -45,7 +48,7 @@ class GDash
         if Sinatra.const_defined?("VERSION") && Gem::Version.new(Sinatra::VERSION) >= Gem::Version.new("1.3.0")
           set :public_folder, File.join(File.expand_path(File.dirname(__FILE__)), "../..", "public")
         else
-          set :public, File.join(File.expand_path(File.dirname(__FILE__)), "../..", "public")          
+          set :public, File.join(File.expand_path(File.dirname(__FILE__)), "../..", "public")
         end
 
         get '/' do
@@ -56,7 +59,7 @@ class GDash
             erb :index
         end
 
-	get '/:category/:dash/full/?*' do
+        get '/:category/:dash/full/?*' do
             params["splat"] = params["splat"].first.split("/")
 
             params["columns"] = params["splat"][0].to_i || @graph_columns
@@ -68,20 +71,25 @@ class GDash
                 width = @graph_width
                 height = @graph_height
             end
-
+            override_params = {:height => height, :width => width}
+            override_params[:from] = params[:from] if params[:from]
 
             if @top_level["#{params[:category]}"].list.include?(params[:dash])
-                @dashboard = @top_level[@params[:category]].dashboard(params[:dash], width, height)
+                @dashboard = @top_level[@params[:category]].dashboard(params[:dash], 
+                                                                     override_params)
             else
                 @error = "No dashboard called #{params[:dash]} found in #{params[:category]}/#{@top_level[params[:category]].list.join ','}"
             end
 
             erb :full_size_dashboard, :layout => false
-	end
+        end
 
         get '/:category/:dash/' do
+            override_params = {}
+            override_params[:from] = params[:from] if params[:from]
             if @top_level["#{params[:category]}"].list.include?(params[:dash])
-                @dashboard = @top_level[@params[:category]].dashboard(params[:dash])
+                @dashboard = @top_level[@params[:category]].dashboard(params[:dash],
+                                                                      override_params)
             else
                 @error = "No dashboard called #{params[:dash]} found in #{params[:category]}/#{@top_level[params[:category]].list.join ','}."
             end

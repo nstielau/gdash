@@ -1,0 +1,10 @@
+<%
+title_attr = element[:title] ? "title=\"#{element[:title]}\"" : ""
+desc_attr = element[:description] ? "data-content=\"#{element[:description]}\"" : ""
+graphite_url = [@top_level[@params[:category]].graphite_render, element[:url]].join "?"
+url = element.get_absolute_url || graphite_url
+%>
+<img src='<%= url %>'
+    <%= title_attr %>
+    <%= desc_attr %>
+    rel="<%= row == 1 ? 'popover-below' : 'popover-above' %>" />

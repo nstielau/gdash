@@ -1,3 +1,25 @@
+Pantheon Extensions:
+=====
+
+* Ability to show html elements
+
+Make a 'element' with a .html extenstion that contains arbitrary ruby.  Pass a string
+to the 'html()' function to render html.
+
+* Global Config.
+Put config files in /etc/gdash/*.json or gdash/config/*.json, and they will be loaded
+and accessble with Configuration.get.this.that or Configuration.get['this']['that']
+
+* Time scaling
+Javascript to zoom to a particular time period.  Press '1d' to zoom to the past
+day, '22w' to zoom to the past 22 weeks, '32m' for 34 minutes etc.  Press faily quickly.
+
+* TODO:
+
+Completely deprecate YAML config, more cleanup
+
+
+
 What?
 =====
 
@@ -28,6 +50,7 @@ and additional options:
     * The title to show at the top of your Graphite
     * A prefix to prepend to all URLs in the dashboard
     * How many columns of graphs to create, 2 by default.
+    * How often dashboard page is refreshed, 60 sec by default.
     * The width of the graphs, 500 by default
     * The height of the graphs, 250 by default
     * Where your whisper files are stored - future use
